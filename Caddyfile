@@ -1,0 +1,45 @@
+# Caddyfile for audio diarization service
+
+# Main API endpoint
+:80 {
+    # API routes with basic rate limiting
+    handle /api/* {
+        # Add basic security headers
+        header {
+            X-Content-Type-Options nosniff
+            X-Frame-Options DENY
+            X-XSS-Protection "1; mode=block"
+            Referrer-Policy strict-origin-when-cross-origin
+        }
+        reverse_proxy app:8000
+    }
+    
+    # Health check (no rate limiting)
+    handle /health {
+        reverse_proxy app:8000
+    }
+    
+    # Grafana dashboard
+    handle /grafana/* {
+        reverse_proxy grafana:3000
+    }
+    
+    # Prometheus metrics (optional, for debugging)
+    handle /prometheus/* {
+        reverse_proxy prometheus:9090
+    }
+    
+    # Default response for root
+    handle {
+        respond "Audio Diarization Service MVP" 200
+    }
+    
+    # Enable compression
+    encode gzip
+    
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}
