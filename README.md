@@ -239,7 +239,7 @@ python -m src.worker
 ## 🚧 MVP Limitations
 
 - Single API key authentication
-- Local file storage (no S3)
+- Local file storage (MinIo S3)
 - Basic error handling
 - Limited concurrent processing (2 workers)
 - No user management
