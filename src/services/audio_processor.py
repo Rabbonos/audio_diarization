@@ -46,7 +46,7 @@ class AudioProcessor:
                 print("Loading pyannote diarization pipeline")
                 self.diarization_pipeline = Pipeline.from_pretrained(
                     "pyannote/speaker-diarization-3.1",
-                    use_auth_token=settings.hf_token
+                    token=settings.hf_token  # Changed from use_auth_token to token
                 )
                 if torch.cuda.is_available():
                     self.diarization_pipeline.to(torch.device("cuda"))

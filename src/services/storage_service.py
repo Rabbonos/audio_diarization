@@ -68,24 +68,54 @@ class StorageService:
     async def _save_to_minio(self, file: BinaryIO, storage_key: str) -> str:
         """Save file to MinIO S3"""
         try:
-            # Read file content
+            # Read file content - handle different file types
             if hasattr(file, 'read'):
-                # Handle UploadFile or file-like object
-                content = await file.read() if hasattr(file, 'read') and callable(file.read) else file.read()
+                read_method = file.read
+                if callable(read_method):
+                    import inspect
+                    if inspect.iscoroutinefunction(read_method):
+                        # Async read (FastAPI UploadFile)
+                        content = await read_method()
+                    else:
+                        # Sync read (SpooledTemporaryFile, regular file, BytesIO)
+                        content = read_method()
+                else:
+                    content = file
             else:
+                # Already bytes
                 content = file
+            
+            # Debug logging
+            print(f"DEBUG: Content type: {type(content)}, Content length: {len(content) if content else 'None'}")
+            
+            # Handle empty content
+            if content is None or (isinstance(content, bytes) and len(content) == 0):
+                raise Exception("File content is empty")
+            
+            # Convert to bytes if needed
+            if isinstance(content, str):
+                content = content.encode()
+            elif not isinstance(content, bytes):
+                content = bytes(content)
+            
+            # MinIO put_object needs a file-like object with length
+            from io import BytesIO
+            data_stream = BytesIO(content)
             
             # Upload to MinIO
             self.minio_client.put_object(
                 bucket_name=settings.minio_bucket_name,
                 object_name=storage_key,
-                data=content,
+                data=data_stream,
                 length=len(content)
             )
             
             return f"s3://{settings.minio_bucket_name}/{storage_key}"
             
         except Exception as e:
+            import traceback
+            print(f"ERROR in _save_to_minio: {e}")
+            print(traceback.format_exc())
             raise Exception(f"Failed to save file to MinIO: {e}")
     
     async def _save_to_local(self, file: BinaryIO, storage_key: str) -> str:
@@ -97,12 +127,28 @@ class StorageService:
             # Create local file path
             local_path = os.path.join(settings.upload_dir, os.path.basename(storage_key))
             
-            # Read and save file
+            # Read file content - handle different file types
             if hasattr(file, 'read'):
-                content = await file.read() if hasattr(file, 'read') and callable(file.read) else file.read()
+                read_method = file.read
+                if callable(read_method):
+                    import inspect
+                    if inspect.iscoroutinefunction(read_method):
+                        # Async read (FastAPI UploadFile)
+                        content = await read_method()
+                    else:
+                        # Sync read (SpooledTemporaryFile, regular file)
+                        content = read_method()
+                else:
+                    content = file
             else:
+                # Already bytes
                 content = file
-                
+            
+            # Handle empty content
+            if content is None or (isinstance(content, bytes) and len(content) == 0):
+                raise Exception("File content is empty")
+            
+            # Write content to file
             async with aiofiles.open(local_path, 'wb') as f:
                 await f.write(content)
             

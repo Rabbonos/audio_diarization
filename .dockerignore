@@ -1,0 +1,58 @@
+# Git files
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+venv
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.idea
+.mypy_cache
+.pytest_cache
+
+# Development files
+.env
+*.sqlite
+*.db
+node_modules
+.DS_Store
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Documentation
+docs/_build/
+README.md
+
+# Uploads and logs (will be mounted as volumes)
+uploads/
+logs/
+
+# Docker
+Dockerfile
+docker-compose.yaml
+.dockerignore
+
+# Monitoring
+monitoring/
+
+# Scripts (development only)
+scripts/
+src/tests

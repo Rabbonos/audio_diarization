@@ -1,76 +1,70 @@
 # =============================================================================
-# PRODUCTION DOCKER COMPOSE
+# DEVELOPMENT DOCKER COMPOSE
 # =============================================================================
-# Usage: docker compose up -d
+# Usage: docker compose -f docker-compose.dev.yaml up
 # Features:
-# - Caddy reverse proxy with automatic HTTPS
-# - Internal networking (no direct port exposure except Caddy)
-# - Production-ready configuration
+# - Direct port exposure (no Caddy reverse proxy)
+# - Hot reload support via volume mounts
+# - Full logging and monitoring stack
 # =============================================================================
 
 services:
   redis:
     image: redis:7-alpine
-    container_name: audio_redis
-    expose:
-      - "6379"
+    container_name: audio_redis_dev
+    ports:
+      - "6379:6379"
     volumes:
-      - redis_data:/data
+      - redis_data_dev:/data
     command: redis-server --appendonly yes
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 3
-    restart: unless-stopped
 
   postgres:
     image: postgres:15-alpine
-    container_name: audio_postgres
-    expose:
-      - "5432"
+    container_name: audio_postgres_dev
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-audio_db}
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-audio_db}"]
       interval: 10s
       timeout: 5s
       retries: 3
-    restart: unless-stopped
 
   minio:
     image: minio/minio:latest
-    container_name: audio_minio
-    expose:
-      - "9000"
-      - "9001"
+    container_name: audio_minio_dev
     ports:
-      - "127.0.0.1:9000:9000"  # S3 API (localhost only)
-      - "127.0.0.1:9001:9001"  # Web Console (localhost only)
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
-      - minio_data:/data
+      - minio_data_dev:/data
     command: server /data --console-address ":9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 20s
       retries: 3
-    restart: unless-stopped
 
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: audio_app
-    expose:
-      - "8000"
+    container_name: audio_app_dev
+    ports:
+      - "8000:8000"
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://user:password@postgres:5432/audio_db}
@@ -96,6 +90,11 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./src:/app/src  # Hot reload for development
+      - ./pyproject.toml:/app/pyproject.toml  # Sync dependency changes
+      - ./uv.lock:/app/uv.lock  # Lock file
+      - ./.env:/app/.env  # Environment variables
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     runtime: nvidia
     deploy:
       resources:
@@ -117,7 +116,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    restart: unless-stopped
 
   rq_worker:
     build:
@@ -148,6 +146,10 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - ./src:/app/src  # Hot reload for development
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./uv.lock:/app/uv.lock
+      - ./.env:/app/.env
     runtime: nvidia
     deploy:
       replicas: ${MAX_WORKERS:-3}
@@ -170,9 +172,9 @@ services:
     
   rq_dashboard:
     image: eoranged/rq-dashboard:latest
-    container_name: audio_rq_dashboard
-    expose:
-      - "9181"
+    container_name: audio_rq_dashboard_dev
+    ports:
+      - "9181:9181"
     environment:
       - RQ_DASHBOARD_REDIS_URL=${RQ_DASHBOARD_REDIS_URL:-redis://redis:6379/0}
     depends_on:
@@ -180,33 +182,14 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: audio_caddy
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"  # HTTP/3
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      app:
-        condition: service_healthy
-    restart: unless-stopped
-
   prometheus:
     image: prom/prometheus:latest
-    container_name: audio_prometheus
-    expose:
-      - "9090"
-    # Only expose on localhost for security
+    container_name: audio_prometheus_dev
     ports:
-      - "127.0.0.1:9090:9090"
+      - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
+      - prometheus_data_dev:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -214,34 +197,28 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
     depends_on:
       - app
-    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:latest
-    container_name: audio_grafana
-    expose:
-      - "3000"
-    # Only expose on localhost for security
+    container_name: audio_grafana_dev
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin123}
       - GF_INSTALL_PLUGINS=${GF_INSTALL_PLUGINS:-grafana-clock-panel,grafana-simple-json-datasource}
     volumes:
-      - grafana_data:/var/lib/grafana
+      - grafana_data_dev:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
       - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
     depends_on:
       prometheus:
         condition: service_started
-    restart: unless-stopped
 
-  # NVIDIA GPU metrics exporter (simplified)
   nvidia-gpu-exporter:
     image: mindprince/nvidia_gpu_prometheus_exporter:0.1
-    container_name: audio_gpu_exporter
-    expose:
-      - "9835"
+    container_name: audio_gpu_exporter_dev
+    ports:
+      - "9835:9835"
     environment:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     runtime: nvidia
@@ -254,12 +231,11 @@ services:
               count: all
               capabilities: [gpu]
 
-  # Container metrics (cAdvisor) - monitors all containers CPU/RAM/Network/Disk
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
-    container_name: audio_cadvisor
-    expose:
-      - "8080"
+    container_name: audio_cadvisor_dev
+    ports:
+      - "8080:8080"
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:rw
@@ -270,10 +246,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  redis_data:
-  postgres_data:
-  minio_data:
-  caddy_data:
-  caddy_config:
-  prometheus_data:
-  grafana_data:
+  redis_data_dev:
+  postgres_data_dev:
+  minio_data_dev:
+  prometheus_data_dev:
+  grafana_data_dev:

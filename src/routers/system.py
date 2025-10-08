@@ -61,8 +61,12 @@ async def get_system_stats():
                 "state": worker.state,
                 "current_job": worker.get_current_job_id(),
                 "last_heartbeat": worker.last_heartbeat.isoformat() if worker.last_heartbeat else None,
-                "birth": worker.birth.isoformat() if worker.birth else None
             }
+            # birth_date attribute was removed in newer RQ versions
+            if hasattr(worker, 'birth_date'):
+                worker_info["birth"] = worker.birth_date.isoformat()
+            elif hasattr(worker, 'birth'):
+                worker_info["birth"] = worker.birth.isoformat()
             worker_stats.append(worker_info)
         
         # Queue statistics

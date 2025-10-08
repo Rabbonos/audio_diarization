@@ -60,15 +60,25 @@ def process_transcription_task(
         # Update progress
         progress_callback(0, "Starting transcription...")
         
+        # Download file from storage if storage_path is provided
+        local_file_path = file_path
+        if storage_path:
+            progress_callback(5, "Downloading audio file from storage...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            local_file_path = loop.run_until_complete(storage_service.download_file(storage_path))
+            loop.close()
+            logger.info(f"Downloaded file from {storage_path} to {local_file_path}")
+        
         # Validate file exists
-        if not file_path or not os.path.exists(file_path):
-            raise Exception(f"Audio file not found: {file_path}")
+        if not local_file_path or not os.path.exists(local_file_path):
+            raise Exception(f"Audio file not found: {local_file_path}")
         
         progress_callback(10, "Loading audio file...")
         
         # Process the audio synchronously
         result = asyncio.run(audio_processor.process_audio_sync(
-            file_path=file_path,
+            file_path=local_file_path,
             language=language,
             model=model,
             format_type=format_type,
@@ -109,13 +119,13 @@ def process_transcription_task(
         
         progress_callback(100, "Transcription completed successfully")
         
-        # Clean up local temp audio file
+        # Clean up local temp audio file (downloaded from storage)
         try:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                logger.info(f"Cleaned up local audio file: {file_path}")
+            if storage_path and local_file_path and os.path.exists(local_file_path):
+                os.remove(local_file_path)
+                logger.info(f"Cleaned up local temp file: {local_file_path}")
         except Exception as e:
-            logger.warning(f"Failed to clean up local audio file {file_path}: {e}")
+            logger.warning(f"Failed to clean up local temp file {local_file_path}: {e}")
         
         # Clean up audio file from storage (S3/MinIO)
         if storage_path:

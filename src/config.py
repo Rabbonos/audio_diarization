@@ -1,8 +1,15 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Set
 
 class Settings(BaseSettings):
+    # Configuration using Pydantic v2 model_config
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore"  # Ignore extra environment variables not defined in Settings
+    )
+    
     # API Configuration
     api_title: str = "Audio Diarization Service"
     api_version: str = "1.0.0"
@@ -18,7 +25,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://user:password@postgres:5432/audio_db"
     
     # File Configuration
-    upload_dir: str = "/app/uploads"  # Local fallback directory
+    upload_dir: str = "/tmp/audio_processing"  # Temporary processing directory (even with S3)
+    log_dir: str = "logs"  # Default log directory (relative to project root)
     max_file_size: int = 500 * 1024 * 1024  # 500MB
     max_duration_hours: int = 8  # Maximum 8 hours
     max_duration_seconds: int = 8 * 3600  # 8 hours in seconds
@@ -49,9 +57,5 @@ class Settings(BaseSettings):
     
     # Whisper settings
     whisper_model: str = "medium"  # MVP model for balance of speed/accuracy
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
 
 settings = Settings()

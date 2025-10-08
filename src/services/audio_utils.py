@@ -55,7 +55,8 @@ async def convert_audio_to_wav_16khz(file_path: str) -> str:
     """Convert audio to 16kHz WAV PCM mono for Whisper processing"""
     try:
         # Create temporary output file
-        output_path = tempfile.mkstemp(suffix=".wav")
+        fd, output_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)  # Close the file descriptor
         
         cmd = [
             'ffmpeg', 

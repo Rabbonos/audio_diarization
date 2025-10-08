@@ -1,26 +1,20 @@
 """
 RQ task manager for handling background tasks using Redis Queue
 """
-import asyncio
-import uuid
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List
-import redis
-from rq import Queue, Worker, Connection
+from typing import Dict, Any, Optional
+from rq import Queue
 from rq.job import Job
 from rq.exceptions import NoSuchJobError
 from ..config import settings
 from ..utils.logger import get_logger
 from ..utils.redis_client import get_redis_client
-import json
-import os
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Tuple
-import redis
-from rq import Queue, Worker, Connection
+from typing import Dict, Any, Optional
+from rq import Queue
 from rq.job import Job
 from rq.exceptions import NoSuchJobError
-from ..config import settings, Settings, get_settings
+from ..config import settings
 
 class RQTaskManager:
     """Manages task queuing and execution using Redis Queue (RQ)"""
@@ -53,9 +47,16 @@ class RQTaskManager:
             "status": "queued",
             "progress": 0.0,
             "message": "Task queued for processing",
-            "eta_seconds": None,
             **task_params
         }
+        
+        # Filter out None values and convert booleans to strings (Redis requirements)
+        metadata = {
+            k: str(v) if isinstance(v, bool) else v 
+            for k, v in metadata.items() 
+            if v is not None
+        }
+        
         #add metadata
         metadata_key = f"{self.task_metadata_prefix}{task_id}"
         self.redis.hset(metadata_key, mapping=metadata)

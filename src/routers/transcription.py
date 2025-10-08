@@ -44,7 +44,7 @@ async def transcribe_audio(
     file: UploadFile = File(None),
     url: str = Form(None),
     lang: str = Form("auto"),
-    model: str = Form("medium"),
+    model: str = Form("tiny"),
     format: str = Form("json"),
     diarization: bool = Form(True),
     api_key: str = ApiKeyDep
@@ -106,8 +106,13 @@ async def transcribe_audio(
                     detail=f"File too large. Maximum size: {settings.max_file_size/1024/1024:.1f}MB"
                 )
             
-            # Save uploaded file using storage service
-            storage_path = await storage_service.save_upload_file(file.file, original_filename, task_id)
+            # Read file content once
+            file_content = await file.read()
+            
+            # Save uploaded file using storage service (pass bytes directly)
+            from io import BytesIO
+            file_stream = BytesIO(file_content)
+            storage_path = await storage_service.save_upload_file(file_stream, original_filename, task_id)
             
             # Download file for processing (will be local path or temp file)
             file_path = await storage_service.download_file(storage_path)
@@ -115,28 +120,52 @@ async def transcribe_audio(
             # Convert to 16kHz WAV for optimal Whisper processing
             wav_file_path = await convert_audio_to_wav_16khz(file_path)
             
-            # If conversion created a new file, use that
+            # Get duration before uploading (wav_file_path is local)
+            duration = await get_audio_duration(wav_file_path)
+            
+            # Upload converted WAV to storage for workers to access
             if wav_file_path != file_path:
-                # Clean up original downloaded file
-                if file_path != storage_path:  # Only if it's a temp file
-                    try:
+                # Save converted WAV to storage
+                try:
+                    print(f"DEBUG: wav_file_path={wav_file_path}, exists={os.path.exists(wav_file_path)}")
+                    with open(wav_file_path, 'rb') as wav_f:
+                        from io import BytesIO
+                        wav_content = wav_f.read()
+                        print(f"DEBUG: wav_content type={type(wav_content)}, length={len(wav_content) if wav_content else 'None'}")
+                        wav_stream = BytesIO(wav_content)
+                        wav_storage_path = await storage_service.save_upload_file(
+                            wav_stream, 
+                            f"{task_id}_converted.wav", 
+                            task_id
+                        )
+                except Exception as e:
+                    print(f"ERROR uploading converted WAV: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
+                
+                # Clean up local temp files
+                try:
+                    if os.path.exists(file_path) and file_path != storage_path:
                         os.remove(file_path)
-                    except:
-                        pass
-                file_path = wav_file_path
+                    if os.path.exists(wav_file_path):
+                        os.remove(wav_file_path)
+                except:
+                    pass
+                
+                # Use the storage path for the converted file
+                storage_path = wav_storage_path
         
         elif url:
             # Handle URL download
             file_path = await download_audio_from_url(url, task_id)
             original_filename = Path(url).name or f"download{Path(file_path).suffix}"
-        
-        # Validate audio file and get duration
-        try:
+            # Get duration for URL downloads
             duration = await get_audio_duration(file_path)
+        
+        # Validate duration
+        try:
             if duration > settings.max_duration_seconds:
-                # Clean up file
-                if os.path.exists(file_path):
-                    os.remove(file_path)
                 raise HTTPException(
                     status_code=413, 
                     detail=f"Audio too long. Maximum duration: {settings.max_duration_hours} hours ({duration/3600:.1f} hours provided)"
@@ -144,16 +173,12 @@ async def transcribe_audio(
         except HTTPException:
             raise
         except Exception as e:
-            # Clean up file
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
             raise HTTPException(status_code=400, detail=f"Invalid audio file: {str(e)}")
         
         # Create initial database record
         file_size_bytes = None
         if file:
-            file_size_bytes = file.file.seek(0, 2)
-            file.file.seek(0)
+            file_size_bytes = len(file_content)
         
         request_metadata = {
             'original_filename': original_filename,
@@ -195,6 +220,9 @@ async def transcribe_audio(
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        print(f"ERROR in transcribe endpoint: {e}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.get("/status/{task_id}")

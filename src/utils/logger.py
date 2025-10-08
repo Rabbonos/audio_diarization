@@ -7,6 +7,8 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 from pathlib import Path
 
+from ..config import settings
+
 class AudioDiarizationLogger:
     """Centralized logger for the application"""
     
@@ -25,9 +27,13 @@ class AudioDiarizationLogger:
     
     def _setup_logger(self):
         """Configure the logger with appropriate handlers and formatters"""
-        # Create logs directory
-        log_dir = Path("/app/logs")
-        log_dir.mkdir(exist_ok=True)
+        # Determine logs directory (supports relative paths)
+        log_dir = Path(settings.log_dir)
+        if not log_dir.is_absolute():
+            project_root = Path(__file__).resolve().parents[2]
+            log_dir = project_root / log_dir
+
+        log_dir.mkdir(parents=True, exist_ok=True)
         
         # Create formatter
         formatter = logging.Formatter(

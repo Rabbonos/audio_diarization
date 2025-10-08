@@ -20,13 +20,16 @@ import redis
 from src.config import settings
 from src.services.audio_processor import AudioProcessor
 from src.services.resource_manager import ResourceManager
-from src.services.format_converter import format_converter
+from src.services.format_service import FormatService
 
 # Initialize Redis connection
 redis_conn = redis.from_url(settings.redis_url, decode_responses=True)
 
 # Initialize resource manager
 resource_manager = ResourceManager()
+
+# Initialize format service
+format_service = FormatService()
 
 def process_audio_task(task_data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -83,7 +86,7 @@ def process_audio_task(task_data: Dict[str, Any]) -> Dict[str, Any]:
             # Convert to requested format
             if format_type != 'raw':
                 formatted_result = loop.run_until_complete(
-                    format_converter.convert_to_format(result, format_type, task_id)
+                    format_service.convert_to_format(result, format_type, task_id)
                 )
                 result['formatted_output'] = formatted_result
             
