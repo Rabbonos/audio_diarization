@@ -42,9 +42,36 @@ if os.path.exists(AUDIO_FILE):
         # 4. Check status
         print(f"4️⃣ Testing /api/v1/status/{task_id}")
         time.sleep(2)
-        response = requests.get(f"{BASE_URL}/api/v1/status/{task_id}")
+        headers = {"Authorization": f"Bearer {API_KEY}"}
+        response = requests.get(f"{BASE_URL}/api/v1/status/{task_id}", headers=headers)
         print(f"   Status: {response.status_code}")
         print(f"   Response: {response.json()}\n")
+        
+        # 5. Wait for completion and get result
+        if response.status_code == 200:
+            status = response.json().get("status")
+            print(f"5️⃣ Waiting for transcription to complete...")
+            
+            for i in range(60):  # Wait up to 60 seconds
+                response = requests.get(f"{BASE_URL}/api/v1/status/{task_id}", headers=headers)
+                if response.status_code == 200:
+                    status = response.json().get("status")
+                    progress = response.json().get("progress", 0)
+                    print(f"   Status: {status}, Progress: {progress}%")
+                    
+                    if status in ["completed", "failed"]:
+                        break
+                time.sleep(1)
+            
+            if status == "completed":
+                print(f"\n6️⃣ Getting transcription result...")
+                response = requests.get(f"{BASE_URL}/api/v1/result/{task_id}", headers=headers)
+                print(f"   Status: {response.status_code}")
+                if response.status_code == 200:
+                    result = response.json()
+                    print(f"   Transcription text: {result.get('transcription_text', 'N/A')[:200]}...")
+                else:
+                    print(f"   Response: {response.json()}\n")
 else:
     print(f"⚠️  Audio file '{AUDIO_FILE}' not found, skipping transcription test\n")
 
