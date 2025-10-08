@@ -232,8 +232,28 @@ class ResultService:
                     'status': data.get('status'),
                     'created_at': data.get('metadata', {}).get('created_at'),
                     'processing_time': data.get('metadata', {}).get('processing_time_seconds'),
+                    'progress': data.get('progress', 0),
                     'error': data.get('error'),
                     'source': 'cache'
+                }
+            
+            # Check task metadata (for queued/pending tasks)
+            metadata_key = f"task_metadata:{task_id}"
+            metadata = self.redis_client.hgetall(metadata_key)
+            
+            if metadata:
+                # Convert bytes to strings if needed
+                metadata = {k.decode() if isinstance(k, bytes) else k: 
+                           v.decode() if isinstance(v, bytes) else v 
+                           for k, v in metadata.items()}
+                
+                return {
+                    'task_id': task_id,
+                    'status': metadata.get('status', 'queued'),
+                    'created_at': metadata.get('created_at'),
+                    'progress': float(metadata.get('progress', 0)),
+                    'message': metadata.get('message'),
+                    'source': 'redis_metadata'
                 }
             
             # Check database for status
