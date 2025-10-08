@@ -218,24 +218,31 @@ class AudioProcessor:
     async def _perform_diarization(self, task_id: str, file_path: str) -> Dict[str, Any]:
         """Perform speaker diarization using pyannote"""
         try:
-            diarization = self.diarization_pipeline(file_path)
+            # pyannote 3.1 returns a DiarizeOutput object
+            output = self.diarization_pipeline(file_path)
+            
+            # The diarization is in output.speaker_diarization (an Annotation object)
+            diarization = output.speaker_diarization
             
             speakers = {}
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
+            # Iterate over the annotation: (segment, track, label) tuples
+            for turn, track, speaker in diarization.itertracks(yield_label=True):
                 speaker_id = f"SPEAKER_{speaker}"
                 if speaker_id not in speakers:
                     speakers[speaker_id] = []
                 
                 speakers[speaker_id].append({
-                    "start": turn.start,
-                    "end": turn.end,
-                    "duration": turn.end - turn.start
+                    "start": float(turn.start),
+                    "end": float(turn.end),
+                    "duration": float(turn.end - turn.start)
                 })
             
             return speakers
             
         except Exception as e:
             print(f"Diarization failed: {e}")
+            import traceback
+            print(traceback.format_exc())
             return {}
     
     async def _combine_results(self, transcription: Dict[str, Any], 

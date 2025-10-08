@@ -199,7 +199,9 @@ async def transcribe_audio(
         )
         
         # Create and queue the RQ task with all parameters
-        task_id = await task_manager.create_task(
+        # Pass task_id so RQ uses the same ID as the database record
+        rq_task_id = await task_manager.create_task(
+            task_id=task_id,  # Pass the task_id to ensure consistency
             file_path=file_path,
             storage_path=storage_path,  # Pass storage path for cleanup
             language=lang,
@@ -209,6 +211,10 @@ async def transcribe_audio(
             original_filename=original_filename,
             api_token=api_key  # Pass API token to task
         )
+        
+        # Verify the task ID matches
+        if rq_task_id != task_id:
+            print(f"WARNING: RQ task ID ({rq_task_id}) doesn't match database ID ({task_id})")
         
         return {
             "task_id": task_id,

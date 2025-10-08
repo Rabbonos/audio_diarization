@@ -26,14 +26,15 @@ class RQTaskManager:
         self.task_metadata_prefix = "task_metadata:"
         self.active_tasks_key = "active_tasks"
         
-    async def create_task(self, **task_params) -> str:
+    async def create_task(self, task_id: Optional[str] = None, **task_params) -> str:
         """Create a new transcription task using RQ"""
         from .audio_tasks import process_transcription_task
         
-        # Enqueue the job
+        # Enqueue the job with optional job_id (task_id)
         job = self.queue.enqueue(
             process_transcription_task,
             **task_params,
+            job_id=task_id,  # Use provided task_id as job_id for consistency
             job_timeout='8h',  # 8 hour timeout
             result_ttl=86400,  # Keep result for 24 hours
             failure_ttl=3600   # Keep failed jobs for 1 hour
