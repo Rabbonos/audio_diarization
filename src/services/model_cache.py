@@ -83,8 +83,8 @@ class WhisperModelCache:
                 import json
                 with open(metadata_path, 'r') as f:
                     return json.load(f)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Warning: Failed to load model metadata from {metadata_path}: {e}")
         return {}
     
     def _save_metadata(self):
