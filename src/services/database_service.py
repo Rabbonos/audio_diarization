@@ -1,13 +1,10 @@
 """
 Database service for managing transcription results
 """
-import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.exc import SQLAlchemyError
-import json
 
 from ..config import settings
 from ..models import Base, TranscriptionResult, ApiUsageStats
@@ -74,7 +71,7 @@ class DatabaseService:
                     audio_duration_seconds=audio_duration_seconds,
                     storage_path=storage_path,
                     status='queued',
-                    created_at=datetime.utcnow()
+                    created_at=datetime.now(timezone.utc)  # Modern timezone-aware datetime
                 )
                 
                 session.add(transcription)
@@ -230,7 +227,7 @@ class DatabaseService:
         try:
             with self.SessionLocal() as session:
                 # Get today's date for stats aggregation
-                today = datetime.utcnow().date()
+                today = datetime.now(timezone.utc).date()  # Modern timezone-aware datetime
                 
                 # Find or create today's stats record
                 stats = session.query(ApiUsageStats).filter(
@@ -241,7 +238,7 @@ class DatabaseService:
                 if not stats:
                     stats = ApiUsageStats(
                         api_token=api_token,
-                        date=datetime.utcnow()
+                        date=datetime.now(timezone.utc)  # Modern timezone-aware datetime
                     )
                     session.add(stats)
                 

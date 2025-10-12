@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 RQ Worker for processing transcription tasks
+Each worker processes only ONE task at a time for GPU memory safety
 """
 import os
 import sys
@@ -18,15 +19,37 @@ def main():
     # Connect to Redis
     redis_conn = redis.from_url(settings.redis_url)
     
-    # Create worker with specific queue (no Connection context manager needed in RQ 2.x)
-    worker = Worker([settings.task_queue], connection=redis_conn)
-    print("Starting RQ worker for transcription tasks...")
-    print(f"Connected to Redis at {settings.redis_url}")
-    print(f"Listening on queue: {settings.task_queue}")
-    print("Worker is ready to process tasks. Press Ctrl+C to stop.")
+    # Create worker with specific queue
+    # CRITICAL: burst=False means worker stays alive and processes tasks sequentially
+    # name parameter helps identify individual workers in logs
+    worker_name = f"worker-{os.getpid()}"
     
-    # Start the worker
-    worker.work()
+    worker = Worker(
+        [settings.task_queue],
+        connection=redis_conn,
+        name=worker_name
+    )
+    
+    print("=" * 60)
+    print(f"Starting RQ Worker: {worker_name}")
+    print("=" * 60)
+    print(f"Connected to Redis: {settings.redis_url}")
+    print(f"Listening on queue: {settings.task_queue}")
+    print(f"Tasks per worker: 1 (RQ workers are single-threaded by design)")
+    print(f"Task Timeout: {settings.task_timeout}s")
+    print(f"Model Cache: {settings.model_cache_dir} (readonly)")
+    print(f"Total workers: Managed by docker-compose replicas")
+    print("=" * 60)
+    print("Worker is ready to process tasks. Press Ctrl+C to stop.")
+    print("=" * 60)
+    
+    # Start the worker - this blocks and processes tasks one at a time
+    worker.work(
+        burst=False,  # Don't exit after finishing jobs
+        logging_level="INFO",
+        max_jobs=None,  # No limit on number of jobs
+        with_scheduler=False  # We don't use scheduled jobs
+    )
 
 if __name__ == "__main__":
     main()

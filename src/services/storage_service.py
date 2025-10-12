@@ -85,9 +85,6 @@ class StorageService:
                 # Already bytes
                 content = file
             
-            # Debug logging
-            print(f"DEBUG: Content type: {type(content)}, Content length: {len(content) if content else 'None'}")
-            
             # Handle empty content
             if content is None or (isinstance(content, bytes) and len(content) == 0):
                 raise Exception("File content is empty")

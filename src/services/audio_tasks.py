@@ -3,7 +3,7 @@ RQ task functions for audio processing
 """
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Callable
 from .audio_processor import AudioProcessor
 from .rq_task_manager import get_task_manager
@@ -35,12 +35,12 @@ def process_transcription_task(
     
     job = get_current_job()
     task_id = job.id
-    start_time = datetime.now()
+    start_time = datetime.now(timezone.utc)  # Modern timezone-aware datetime
     
     # Get task manager for progress updates
     task_manager = get_task_manager()
     
-    def progress_callback(progress: float, message: str):
+    def progress_callback(progress: float, message: str) -> None:
         """Synchronous progress callback for RQ job"""
         # Run async progress update in event loop
         try:
@@ -90,7 +90,7 @@ def process_transcription_task(
         progress_callback(95, "Storing results...")
         
         # Calculate processing time
-        end_time = datetime.utcnow()
+        end_time = datetime.now(timezone.utc)  # Modern timezone-aware datetime
         processing_time = (end_time - start_time).total_seconds()
         
         # Store results in database and cache
@@ -149,7 +149,7 @@ def process_transcription_task(
         progress_callback(0, error_msg)
         
         # Calculate processing time for failed task
-        end_time = datetime.now()
+        end_time = datetime.now(timezone.utc)  # Modern timezone-aware datetime
         processing_time = (end_time - start_time).total_seconds()
         
         # Store error in database
@@ -177,9 +177,9 @@ def process_transcription_task(
         
         # Clean up local temp audio file on error
         try:
-            if file_path and os.path.exists(file_path):
-                os.remove(file_path)
-                logger.info(f"Cleaned up local audio file after error: {file_path}")
+            if local_file_path and os.path.exists(local_file_path):
+                os.remove(local_file_path)
+                logger.info(f"Cleaned up local audio file after error: {local_file_path}")
         except Exception as cleanup_error:
             logger.warning(f"Failed to clean up local audio file after error: {cleanup_error}")
         

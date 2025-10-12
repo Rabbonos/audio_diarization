@@ -2,7 +2,7 @@
 Result service for managing transcription results with Redis cache + PostgreSQL persistence
 """
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
 from ..config import settings
@@ -72,7 +72,7 @@ class ResultService:
                 'status': 'completed',
                 'result': result_data,
                 'metadata': processing_metadata,
-                'cached_at': datetime.utcnow().isoformat()
+                'cached_at': datetime.now(timezone.utc).isoformat()  # Modern timezone-aware datetime
             }
             
             self.redis_client.setex(
@@ -114,7 +114,7 @@ class ResultService:
                 task_id=task_id,
                 status='failed',
                 started_at=metadata.get('started_at'),
-                completed_at=datetime.utcnow(),
+                completed_at=datetime.now(timezone.utc),  # Modern timezone-aware datetime
                 processing_time_seconds=metadata.get('processing_time_seconds'),
                 error_message=error_message
             )
@@ -129,7 +129,7 @@ class ResultService:
                 'status': 'failed',
                 'error': error_message,
                 'metadata': metadata,
-                'cached_at': datetime.utcnow().isoformat()
+                'cached_at': datetime.now(timezone.utc).isoformat()  # Modern timezone-aware datetime
             }
             
             self.redis_client.setex(
@@ -198,7 +198,7 @@ class ResultService:
                     'format_type': db_result.get('format_type')
                 },
                 'error': db_result.get('error_message'),
-                'cached_at': datetime.utcnow().isoformat(),
+                'cached_at': datetime.now(timezone.utc).isoformat(),  # Modern timezone-aware datetime
                 'source': 'database'
             }
             

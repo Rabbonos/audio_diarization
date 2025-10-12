@@ -113,7 +113,7 @@ async def get_system_stats():
             "gpu": gpu_stats,
             "configuration": {
                 "max_workers": settings.max_workers,
-                "worker_concurrency": settings.worker_concurrency,
+                "tasks_per_worker": 1,  # RQ workers handle 1 task at a time (by design)
                 "task_timeout": settings.task_timeout
             }
         }

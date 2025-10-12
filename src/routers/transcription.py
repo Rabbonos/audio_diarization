@@ -11,8 +11,10 @@ from ..services.rq_task_manager import get_task_manager
 from ..services.url_downloader import url_downloader
 from ..services.storage_service import storage_service
 from ..services.result_service import result_service
+from ..utils.logger import get_logger
 
 router = APIRouter(prefix="/api/v1", tags=["transcription"])
+logger = get_logger("transcription")
 
 # Initialize task manager
 task_manager = get_task_manager()
@@ -127,11 +129,9 @@ async def transcribe_audio(
             if wav_file_path != file_path:
                 # Save converted WAV to storage
                 try:
-                    print(f"DEBUG: wav_file_path={wav_file_path}, exists={os.path.exists(wav_file_path)}")
                     with open(wav_file_path, 'rb') as wav_f:
                         from io import BytesIO
                         wav_content = wav_f.read()
-                        print(f"DEBUG: wav_content type={type(wav_content)}, length={len(wav_content) if wav_content else 'None'}")
                         wav_stream = BytesIO(wav_content)
                         wav_storage_path = await storage_service.save_upload_file(
                             wav_stream, 
@@ -139,9 +139,7 @@ async def transcribe_audio(
                             task_id
                         )
                 except Exception as e:
-                    print(f"ERROR uploading converted WAV: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.error(f"ERROR uploading converted WAV: {e}", exc_info=True)
                     raise
                 
                 # Clean up local temp files
