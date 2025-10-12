@@ -33,9 +33,18 @@ class WhisperModelCache:
     def __init__(self):
         if hasattr(self, 'initialized'):
             return
-            
-        self.cache_dir = Path(settings.upload_dir).parent / "model_cache"
-        self.cache_dir.mkdir(exist_ok=True)
+        
+        # Use shared model cache directory (readonly in workers)
+        self.cache_dir = Path(settings.model_cache_dir)
+        
+        # Create cache directory only if writable (for init container)
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.is_writable = True
+        except (PermissionError, OSError):
+            # Directory is readonly - this is expected in worker containers
+            self.is_writable = False
+            print(f"Model cache directory is readonly: {self.cache_dir}")
         
         # In-memory cache: {model_name: model_on_cpu}
         self.cpu_cache: Dict[str, Any] = {}
@@ -91,10 +100,27 @@ class WhisperModelCache:
         """Download model and save to disk cache"""
         cache_path = self._get_cache_path(model_name)
         
+        # Check if already cached (by another process/init container)
+        if cache_path.exists():
+            print(f"Model already cached at: {cache_path}")
+            try:
+                with open(cache_path, 'rb') as f:
+                    model = pickle.load(f)
+                return model
+            except Exception as e:
+                print(f"Failed to load cached model, will re-download: {e}")
+        
+        # Check if cache is writable
+        if not self.is_writable:
+            raise Exception(
+                f"Model {model_name} not found in cache and cache directory is readonly. "
+                f"Please run model initialization first."
+            )
+        
         print(f"Downloading and caching Whisper model: {model_name}")
         
         # Download model to CPU first (saves VRAM)
-        model = whisper.load_model(model_name, device="cpu")
+        model = whisper.load_model(model_name, device="cpu", download_root=str(self.cache_dir))
         
         # Cache to disk
         try:

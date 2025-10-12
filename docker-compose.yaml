@@ -119,6 +119,28 @@ services:
       start_period: 40s
     restart: unless-stopped
 
+  # Model initialization service - runs once to download models
+  model_init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python scripts/init_models.py
+    environment:
+      - HF_TOKEN=${HF_TOKEN}
+      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
+      - MODEL_CACHE_DIR=/models
+    volumes:
+      - models_cache:/models
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: "no"  # Only runs once
+
   rq_worker:
     build:
       context: .
@@ -129,7 +151,6 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://user:password@postgres:5432/audio_db}
       - HF_TOKEN=${HF_TOKEN}
       - MAX_WORKERS=${MAX_WORKERS:-3}
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-1}
       - TASK_TIMEOUT=${TASK_TIMEOUT:-3600}
       - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
@@ -140,6 +161,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
       - LOG_DIR=${LOG_DIR:-/app/logs}
       - UPLOAD_DIR=${UPLOAD_DIR:-/app/uploads}
+      - MODEL_CACHE_DIR=/models  # Shared readonly models directory
       - WHISPER_MODEL=${WHISPER_MODEL:-medium}
       - MAX_FILE_SIZE=${MAX_FILE_SIZE:-524288000}
       - MAX_DURATION_SECONDS=${MAX_DURATION_SECONDS:-28800}
@@ -148,6 +170,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
+      - models_cache:/models:ro  # Read-only mount for fast model access
     runtime: nvidia
     deploy:
       replicas: ${MAX_WORKERS:-3}
@@ -166,6 +189,8 @@ services:
         condition: service_healthy
       app:
         condition: service_healthy
+      model_init:
+        condition: service_completed_successfully
     restart: unless-stopped
     
   rq_dashboard:
@@ -269,6 +294,27 @@ services:
     privileged: true
     restart: unless-stopped
 
+  # S3 Cleanup - runs daily to remove old files
+  s3_cleanup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: sh -c "while true; do python scripts/cleanup_s3_files.py && sleep 86400; done"
+    environment:
+      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-audio-files}
+      - MINIO_SECURE=${MINIO_SECURE:-false}
+      - USE_MINIO=${USE_MINIO:-true}
+      - S3_RETENTION_DAYS=${S3_RETENTION_DAYS:-7}
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - cleanup  # Optional service - activate with: docker compose --profile cleanup up
+
 volumes:
   redis_data:
   postgres_data:
@@ -277,3 +323,4 @@ volumes:
   caddy_config:
   prometheus_data:
   grafana_data:
+  models_cache:  # Shared volume for Whisper models - accessed by all workers

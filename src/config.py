@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     # File Configuration
     upload_dir: str = "/tmp/audio_processing"  # Temporary processing directory (even with S3)
     log_dir: str = "logs"  # Default log directory (relative to project root)
+    model_cache_dir: str = "/models"  # Shared models directory (readonly in workers)
     max_file_size: int = 500 * 1024 * 1024  # 500MB
     max_duration_hours: int = 8  # Maximum 8 hours
     max_duration_seconds: int = 8 * 3600  # 8 hours in seconds
@@ -46,10 +47,13 @@ class Settings(BaseSettings):
     }
     
     # Worker Configuration (Controls parallel processing capacity)
-    max_workers: int = 3  # Maximum number of workers (controls parallel requests)
-    worker_concurrency: int = 1  # Tasks per worker (keep at 1 for GPU memory safety)
+    max_workers: int = 3  # Number of worker processes (each processes 1 task at a time)
     task_timeout: int = 3600  # 1 hour timeout
     task_queue: str = "audio_tasks"  # RQ queue name
+    
+    # Note: RQ workers are single-threaded by design. Each worker process
+    # handles exactly 1 task at a time. To increase concurrency, scale the
+    # number of worker processes (MAX_WORKERS), not tasks per worker.
     
     # Resource Management (for monitoring)
     max_vram_gb: int = 16  # Maximum VRAM available
