@@ -297,7 +297,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "nvidia_gpu_duty_cycle",
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
           "refId": "A"
         }
       ],
@@ -353,7 +353,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "nvidia_gpu_temperature_celsius",
+          "expr": "DCGM_FI_DEV_GPU_TEMP",
           "refId": "A"
         }
       ],
@@ -608,7 +608,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "nvidia_gpu_duty_cycle",
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
           "legendFormat": "GPU {{gpu}}",
           "refId": "A"
         }
@@ -684,13 +684,13 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "nvidia_gpu_memory_used_bytes",
-          "legendFormat": "Used - GPU {{gpu}}",
+          "expr": "DCGM_FI_DEV_FB_USED",
+          "legendFormat": "Used MB - GPU {{gpu}}",
           "refId": "A"
         },
         {
-          "expr": "nvidia_gpu_memory_total_bytes",
-          "legendFormat": "Total - GPU {{gpu}}",
+          "expr": "DCGM_FI_DEV_FB_FREE",
+          "legendFormat": "Free MB - GPU {{gpu}}",
           "refId": "B"
         }
       ],
@@ -765,7 +765,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "nvidia_gpu_temperature_celsius",
+          "expr": "DCGM_FI_DEV_GPU_TEMP",
           "legendFormat": "GPU {{gpu}}",
           "refId": "A"
         }

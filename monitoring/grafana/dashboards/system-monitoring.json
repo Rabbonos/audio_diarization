@@ -90,13 +90,13 @@
       },
       "targets": [
         {
-          "expr": "100 - (avg(irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{id=~\"/docker/.*\"}[5m])) * 100",
           "interval": "",
-          "legendFormat": "CPU Usage %",
+          "legendFormat": "Total Container CPU %",
           "refId": "A"
         }
       ],
-      "title": "CPU Usage",
+      "title": "Container CPU Usage",
       "type": "timeseries"
     },
     {
@@ -171,13 +171,13 @@
       },
       "targets": [
         {
-          "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+          "expr": "sum(container_memory_working_set_bytes{id=~\"/docker/.*\"}) / 1024 / 1024 / 1024",
           "interval": "",
-          "legendFormat": "RAM Usage %",
+          "legendFormat": "Total Container Memory GB",
           "refId": "A"
         }
       ],
-      "title": "Memory Usage",
+      "title": "Container Memory Usage",
       "type": "timeseries"
     },
     {
@@ -252,7 +252,7 @@
       },
       "targets": [
         {
-          "expr": "nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes * 100",
+          "expr": "(DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
           "interval": "",
           "legendFormat": "GPU {{gpu}} Memory %",
           "refId": "A"
@@ -333,7 +333,7 @@
       },
       "targets": [
         {
-          "expr": "nvidia_gpu_utilization_gpu",
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
           "interval": "",
           "legendFormat": "GPU {{gpu}} Utilization %",
           "refId": "A"
@@ -414,7 +414,7 @@
       },
       "targets": [
         {
-          "expr": "nvidia_gpu_temperature_gpu",
+          "expr": "DCGM_FI_DEV_GPU_TEMP",
           "interval": "",
           "legendFormat": "GPU {{gpu}} Temperature °C",
           "refId": "A"
@@ -495,13 +495,13 @@
       },
       "targets": [
         {
-          "expr": "100 - (avg(irate(node_filesystem_avail_bytes{mountpoint=\"/\"}[5m])) / avg(node_filesystem_size_bytes{mountpoint=\"/\"}) * 100)",
+          "expr": "DCGM_FI_DEV_POWER_USAGE",
           "interval": "",
-          "legendFormat": "Disk Usage %",
+          "legendFormat": "GPU {{gpu}} Power (W)",
           "refId": "A"
         }
       ],
-      "title": "Disk Usage",
+      "title": "GPU Power Usage",
       "type": "timeseries"
     }
   ],

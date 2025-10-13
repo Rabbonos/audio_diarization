@@ -252,7 +252,7 @@
       },
       "targets": [
         {
-          "expr": "nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes * 100",
+          "expr": "(DCGM_FI_DEV_FB_USED / (DCGM_FI_DEV_FB_USED + DCGM_FI_DEV_FB_FREE)) * 100",
           "interval": "",
           "legendFormat": "GPU {{gpu}} Memory %",
           "refId": "A"
@@ -333,7 +333,7 @@
       },
       "targets": [
         {
-          "expr": "nvidia_gpu_utilization_gpu",
+          "expr": "DCGM_FI_DEV_GPU_UTIL",
           "interval": "",
           "legendFormat": "GPU {{gpu}} Utilization %",
           "refId": "A"
