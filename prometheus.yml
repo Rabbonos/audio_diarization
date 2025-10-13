@@ -12,10 +12,10 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  # GPU metrics (NVIDIA GPU exporter)
+  # GPU metrics (NVIDIA DCGM exporter)
   - job_name: 'nvidia-gpu'
     static_configs:
-      - targets: ['nvidia-gpu-exporter:9835']
+      - targets: ['nvidia-gpu-exporter:9400']  # DCGM exporter port
     scrape_interval: 10s
 
   # Container metrics (cAdvisor) - monitors all containers CPU/RAM/Network/Disk

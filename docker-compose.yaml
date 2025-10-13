@@ -210,13 +210,13 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # NVIDIA GPU metrics exporter (simplified)
+  # NVIDIA GPU metrics exporter (official DCGM exporter)
   nvidia-gpu-exporter:
-    image: mindprince/nvidia_gpu_prometheus_exporter:0.1
+    image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.0-ubuntu22.04
     container_name: audio_gpu_exporter
     env_file: .env
     expose:
-      - "9835"
+      - "9400"  # DCGM exporter uses port 9400
     runtime: nvidia
     restart: unless-stopped
     deploy:
@@ -226,6 +226,8 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    cap_add:
+      - SYS_ADMIN
 
   # Container metrics (cAdvisor) - monitors all containers CPU/RAM/Network/Disk
   cadvisor:
