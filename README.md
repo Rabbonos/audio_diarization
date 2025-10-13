@@ -12,6 +12,10 @@ A cloud service for automatic audio transcription and speaker diarization using 
 - **Monitoring** with Prometheus & Grafana
 - **Containerized** with Docker Compose
 
+## 🏗️ Architecture
+
+![Audio Diarization MVP Architecture](./Audio%20Diarization%20MVP.drawio.svg)
+
 ## 🚀 Quick Start
 
 ### Prerequisites

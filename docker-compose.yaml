@@ -12,6 +12,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: audio_redis
+    env_file: .env
     expose:
       - "6379"
     volumes:
@@ -27,12 +28,9 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: audio_postgres
+    env_file: .env
     expose:
       - "5432"
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-audio_db}
-      POSTGRES_USER: ${POSTGRES_USER:-user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -45,15 +43,13 @@ services:
   minio:
     image: minio/minio:latest
     container_name: audio_minio
+    env_file: .env
     expose:
       - "9000"
       - "9001"
     ports:
       - "127.0.0.1:9000:9000"  # S3 API (localhost only)
       - "127.0.0.1:9001:9001"  # Web Console (localhost only)
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
     command: server /data --console-address ":9001"
@@ -69,30 +65,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: audio_app
+    env_file: .env
     expose:
       - "8000"
-    environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://user:password@postgres:5432/audio_db}
-      - HF_TOKEN=${HF_TOKEN}
-      - MAX_WORKERS=${MAX_WORKERS:-3}
-      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-1}
-      - TASK_TIMEOUT=${TASK_TIMEOUT:-3600}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-audio-files}
-      - MINIO_SECURE=${MINIO_SECURE:-false}
-      - USE_MINIO=${USE_MINIO:-true}
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
-      - LOG_DIR=${LOG_DIR:-/app/logs}
-      - UPLOAD_DIR=${UPLOAD_DIR:-/app/uploads}
-      - API_KEY=${API_KEY:-mvp-api-key-123}
-      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
-      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-524288000}
-      - MAX_DURATION_SECONDS=${MAX_DURATION_SECONDS:-28800}
-      - MAX_VRAM_GB=${MAX_VRAM_GB:-16}
-      - MAX_RAM_GB=${MAX_RAM_GB:-32}
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
@@ -125,10 +100,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command: python scripts/init_models.py
-    environment:
-      - HF_TOKEN=${HF_TOKEN}
-      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
-      - MODEL_CACHE_DIR=/models
+    env_file: .env
     volumes:
       - models_cache:/models
     runtime: nvidia
@@ -146,27 +118,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command: python -m src.rq_worker
-    environment:
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      - DATABASE_URL=${DATABASE_URL:-postgresql+psycopg://user:password@postgres:5432/audio_db}
-      - HF_TOKEN=${HF_TOKEN}
-      - MAX_WORKERS=${MAX_WORKERS:-3}
-      - TASK_TIMEOUT=${TASK_TIMEOUT:-3600}
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-audio-files}
-      - MINIO_SECURE=${MINIO_SECURE:-false}
-      - USE_MINIO=${USE_MINIO:-true}
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
-      - LOG_DIR=${LOG_DIR:-/app/logs}
-      - UPLOAD_DIR=${UPLOAD_DIR:-/app/uploads}
-      - MODEL_CACHE_DIR=/models  # Shared readonly models directory
-      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
-      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-524288000}
-      - MAX_DURATION_SECONDS=${MAX_DURATION_SECONDS:-28800}
-      - MAX_VRAM_GB=${MAX_VRAM_GB:-16}
-      - MAX_RAM_GB=${MAX_RAM_GB:-32}
+    env_file: .env
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
@@ -196,10 +148,9 @@ services:
   rq_dashboard:
     image: eoranged/rq-dashboard:latest
     container_name: audio_rq_dashboard
+    env_file: .env
     expose:
       - "9181"
-    environment:
-      - RQ_DASHBOARD_REDIS_URL=${RQ_DASHBOARD_REDIS_URL:-redis://redis:6379/0}
     depends_on:
       redis:
         condition: service_healthy
@@ -244,14 +195,12 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: audio_grafana
+    env_file: .env
     expose:
       - "3000"
     # Only expose on localhost for security
     ports:
       - "127.0.0.1:3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin123}
-      - GF_INSTALL_PLUGINS=${GF_INSTALL_PLUGINS:-grafana-clock-panel,grafana-simple-json-datasource}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
@@ -265,10 +214,9 @@ services:
   nvidia-gpu-exporter:
     image: mindprince/nvidia_gpu_prometheus_exporter:0.1
     container_name: audio_gpu_exporter
+    env_file: .env
     expose:
       - "9835"
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     runtime: nvidia
     restart: unless-stopped
     deploy:
@@ -300,14 +248,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command: sh -c "while true; do python scripts/cleanup_s3_files.py && sleep 86400; done"
-    environment:
-      - MINIO_ENDPOINT=${MINIO_ENDPOINT:-minio:9000}
-      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
-      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
-      - MINIO_BUCKET_NAME=${MINIO_BUCKET_NAME:-audio-files}
-      - MINIO_SECURE=${MINIO_SECURE:-false}
-      - USE_MINIO=${USE_MINIO:-true}
-      - S3_RETENTION_DAYS=${S3_RETENTION_DAYS:-7}
+    env_file: .env
     depends_on:
       minio:
         condition: service_healthy
