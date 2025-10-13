@@ -30,13 +30,13 @@ def scale_workers(num_workers: int):
         # Change to project directory
         os.chdir(project_root)
         
-        # Scale workers using docker-compose
-        cmd = ["docker-compose", "up", "-d", "--scale", f"rq_worker={num_workers}"]
+        # Scale workers using docker compose (modern command)
+        cmd = ["docker", "compose", "up", "-d", "--scale", f"rq_worker={num_workers}"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
             print(f"✅ Successfully scaled to {num_workers} workers")
-            print("📋 Check status with: docker-compose ps")
+            print("📋 Check status with: docker compose ps")
         else:
             print(f"❌ Failed to scale workers:")
             print(result.stderr)
@@ -56,7 +56,7 @@ def get_worker_status():
         os.chdir(project_root)
         
         # Get running containers
-        cmd = ["docker-compose", "ps", "--filter", "name=rq_worker"]
+        cmd = ["docker", "compose", "ps", "--filter", "name=rq_worker"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
@@ -78,7 +78,7 @@ def stop_all_workers():
         os.chdir(project_root)
         
         print("🛑 Stopping all workers...")
-        cmd = ["docker-compose", "stop", "rq_worker"]
+        cmd = ["docker", "compose", "stop", "rq_worker"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
@@ -98,7 +98,7 @@ def restart_workers():
         os.chdir(project_root)
         
         print("🔄 Restarting workers...")
-        cmd = ["docker-compose", "restart", "rq_worker"]
+        cmd = ["docker", "compose", "restart", "rq_worker"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
@@ -119,7 +119,7 @@ def show_logs():
         
         print("📜 Worker logs (press Ctrl+C to exit):")
         print("=" * 50)
-        cmd = ["docker-compose", "logs", "-f", "rq_worker"]
+        cmd = ["docker", "compose", "logs", "-f", "rq_worker"]
         subprocess.run(cmd)
         
     except KeyboardInterrupt:
