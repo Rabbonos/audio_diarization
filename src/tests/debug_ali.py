@@ -30,7 +30,11 @@ if os.path.exists(AUDIO_FILE):
     with open(AUDIO_FILE, "rb") as f:
         files = {"file": (AUDIO_FILE, f, "audio/mpeg")}
         headers = {"Authorization": f"Bearer {API_KEY}"}
-        data = {"lang": "auto", "format": "json"}
+        data = {
+            "lang": "auto", 
+            "format": "json",
+            "model": "tiny"  # Specify model (tiny, base, small, medium, large)
+        }
         response = requests.post(f"{BASE_URL}/api/v1/transcribe", files=files, headers=headers, data=data)
     
     print(f"   Status: {response.status_code}")
