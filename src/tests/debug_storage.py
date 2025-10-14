@@ -1,33 +1,18 @@
 #!/usr/bin/env python3
 """
-Debug script to inspect Redis and PostgreSQL storage
+Simple debug script to inspect Redis and PostgreSQL storage
 """
 import redis
 import psycopg
 from psycopg.rows import dict_row
 import json
-from datetime import datetime
-import os
-import sys
 
-# Add src to path to import config
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-from config import settings
+# Simple hardcoded config - adjust if your ports are different
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+REDIS_DB = 0
 
-# Configuration from settings (adjust for localhost when running outside Docker)
-# Parse redis://host:port/db
-redis_url = settings.redis_url.replace("redis://redis:", "redis://localhost:")
-redis_parts = redis_url.replace("redis://", "").split("/")
-redis_host_port = redis_parts[0].split(":")
-REDIS_HOST = redis_host_port[0]
-REDIS_PORT = int(redis_host_port[1]) if len(redis_host_port) > 1 else 6379
-REDIS_DB = int(redis_parts[1]) if len(redis_parts) > 1 else 0
-
-# PostgreSQL config from settings (adjust for localhost and clean URL)
-POSTGRES_URL = settings.database_url
-POSTGRES_URL = POSTGRES_URL.replace("postgres:5432", "localhost:5432")
-POSTGRES_URL = POSTGRES_URL.replace("postgresql+psycopg://", "postgresql://")
-POSTGRES_URL = POSTGRES_URL.replace("postgres://", "postgresql://")
+POSTGRES_URL = "postgresql://audio_user:audio_pass@localhost:5432/audio_db"
 
 def print_section(title):
     """Print a section header"""
@@ -214,18 +199,15 @@ def inspect_postgresql():
         import traceback
         traceback.print_exc()
 
+
 def main():
     """Main function"""
-    print("\n" + "🔍 STORAGE DEBUG TOOL" + "\n")
-    print(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("\n🔍 STORAGE DEBUG TOOL\n")
     
-    # Inspect both storage systems
     inspect_redis()
     inspect_postgresql()
     
-    print("\n" + "="*80)
-    print("✅ Inspection complete!")
-    print("="*80 + "\n")
+    print("\n✅ Done!\n")
 
 if __name__ == "__main__":
     main()
