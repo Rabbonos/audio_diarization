@@ -30,7 +30,11 @@ if os.path.exists(AUDIO_FILE):
     with open(AUDIO_FILE, "rb") as f:
         files = {"file": (AUDIO_FILE, f, "audio/mpeg")}
         headers = {"Authorization": f"Bearer {API_KEY}"}
-        data = {"lang": "auto", "format": "json"}
+        data = {
+            "lang": "auto", 
+            "format": "json",
+            "model": "tiny"  # Specify model (tiny, base, small, medium, large)
+        }
         response = requests.post(f"{BASE_URL}/api/v1/transcribe", files=files, headers=headers, data=data)
     
     print(f"   Status: {response.status_code}")
@@ -52,16 +56,20 @@ if os.path.exists(AUDIO_FILE):
             status = response.json().get("status")
             print(f"5️⃣ Waiting for transcription to complete...")
             
-            for i in range(60):  # Wait up to 60 seconds
+            for i in range(120):  # Wait up to 2 minutes (120 * 3 = 360 seconds)
                 response = requests.get(f"{BASE_URL}/api/v1/status/{task_id}", headers=headers)
                 if response.status_code == 200:
                     status = response.json().get("status")
                     progress = response.json().get("progress", 0)
-                    print(f"   Status: {status}, Progress: {progress}%")
+                    print(f"   [{i+1}/120] Status: {status}, Progress: {progress}%")
                     
                     if status in ["completed", "failed"]:
                         break
-                time.sleep(1)
+                elif response.status_code == 429:
+                    print(f"   ⚠️  Rate limited, waiting 5 seconds...")
+                    time.sleep(5)
+                    continue
+                time.sleep(3)  # Poll every 3 seconds instead of 1 second
             
             if status == "completed":
                 print(f"\n6️⃣ Getting transcription result...")
