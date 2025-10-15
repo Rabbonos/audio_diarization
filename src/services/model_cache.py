@@ -10,7 +10,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import whisper
 import torch
-from ..config import settings
+
+try:
+    # Try relative import first (for FastAPI app)
+    from ..config import settings
+except ImportError:
+    # Fall back to absolute import (for RQ worker script)
+    from config import settings
 
 class WhisperModelCache:
     """

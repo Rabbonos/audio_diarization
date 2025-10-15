@@ -3,7 +3,13 @@ Redis connection utilities for consistent Redis client management
 """
 import redis
 from typing import Optional
-from ..config import settings
+
+try:
+    # Try relative import first (for FastAPI app)
+    from ..config import settings
+except ImportError:
+    # Fall back to absolute import (for RQ worker script)
+    from config import settings
 
 class RedisConnectionManager:
     """Centralized Redis connection management"""

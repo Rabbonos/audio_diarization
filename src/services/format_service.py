@@ -13,7 +13,13 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
 from docx import Document
 from docx.shared import Inches
-from ..utils.logger import get_logger
+
+try:
+    # Try relative import first (for FastAPI app)
+    from ..utils.logger import get_logger
+except ImportError:
+    # Fall back to absolute import (for RQ worker script)
+    from utils.logger import get_logger
 
 class TranscriptionFormatService:
     """Unified service for converting transcription results to various output formats"""

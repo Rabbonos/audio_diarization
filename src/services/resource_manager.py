@@ -12,7 +12,14 @@ from dataclasses import dataclass
 from enum import Enum
 import redis
 import torch
-from ..config import settings
+from rq import Worker
+
+try:
+    # Try relative import first (for FastAPI app)
+    from ..config import settings
+except ImportError:
+    # Fall back to absolute import (for RQ worker script)
+    from config import settings
 
 @dataclass
 class ModelSpec:
@@ -48,21 +55,16 @@ class ResourceManager:
         self.pyannote_vram_mb = 1500  # pyannote pipeline VRAM usage
         
         # Redis keys for coordination
-        self.active_models_key = "resource_manager:active_models"
         self.resource_usage_key = "resource_manager:usage"
-        self.worker_registry_key = "resource_manager:workers"
         
-        # Worker ID
-        self.worker_id = f"worker_{os.getpid()}_{int(time.time())}"
+        # Worker ID (just for logging)
+        self.worker_id = f"worker_{os.getpid()}"
         
         # Model specs lookup
         self.model_specs = {spec.value.name: spec.value for spec in ModelSize}
         
         # Lock for critical sections
         self._lock = threading.Lock()
-        
-        # Register this worker
-        self._register_worker()
     
     def _register_worker(self):
         """Register this worker in Redis"""
@@ -104,6 +106,51 @@ class ResourceManager:
         except Exception as e:
             print(f"Warning: Failed to send heartbeat: {e}")
     
+    def get_all_workers(self) -> List[Dict[str, Any]]:
+        """Get all registered workers"""
+        try:
+            workers = self.redis.hgetall(self.worker_registry_key)
+            result = []
+            current_time = time.time()
+            
+            for worker_id, data_str in workers.items():
+                try:
+                    data = json.loads(data_str)
+                    data["worker_id"] = worker_id
+                    data["alive"] = (current_time - data.get("last_heartbeat", 0)) < 300
+                    result.append(data)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+            
+            return result
+        except Exception as e:
+            print(f"Warning: Failed to get all workers: {e}")
+            return []
+    
+    def cleanup_stale_workers(self) -> int:
+        """Clean up stale worker registrations and return count"""
+        try:
+            workers = self.redis.hgetall(self.worker_registry_key)
+            current_time = time.time()
+            cleaned = 0
+            
+            for worker_id, data_str in workers.items():
+                try:
+                    data = json.loads(data_str)
+                    # Remove workers that haven't sent heartbeat in 5 minutes
+                    if current_time - data.get("last_heartbeat", 0) > 300:
+                        self.redis.hdel(self.worker_registry_key, worker_id)
+                        cleaned += 1
+                except (json.JSONDecodeError, KeyError):
+                    # Remove corrupted entries
+                    self.redis.hdel(self.worker_registry_key, worker_id)
+                    cleaned += 1
+            
+            return cleaned
+        except Exception as e:
+            print(f"Warning: Failed to cleanup stale workers: {e}")
+            return 0
+    
     def _get_current_usage(self) -> Tuple[int, int]:
         """Get current VRAM and RAM usage across all workers"""
         try:
@@ -136,9 +183,6 @@ class ResourceManager:
         Returns:
             (can_load: bool, reason: str)
         """
-        self._cleanup_stale_workers()
-        self._heartbeat()
-        
         if model_name not in self.model_specs:
             return False, f"Unknown model: {model_name}"
         
@@ -249,8 +293,6 @@ class ResourceManager:
     
     def get_resource_status(self) -> Dict[str, Any]:
         """Get current resource usage status"""
-        self._cleanup_stale_workers()
-        
         current_vram, current_ram = self._get_current_usage()
         system_memory = psutil.virtual_memory()
         
@@ -263,19 +305,8 @@ class ResourceManager:
                 "cached_mb": torch.cuda.memory_reserved() // (1024*1024)
             }
         
-        # Get active workers
-        workers = self.redis.hgetall(self.worker_registry_key)
-        active_workers = []
-        for worker_id, data_str in workers.items():
-            try:
-                data = json.loads(data_str)
-                active_workers.append({
-                    "worker_id": worker_id,
-                    "pid": data.get("pid"),
-                    "last_heartbeat": data.get("last_heartbeat")
-                })
-            except:
-                continue
+        # Get RQ workers
+        workers = self.get_all_workers()
         
         return {
             "limits": {
@@ -294,8 +325,8 @@ class ResourceManager:
                 "available_ram_mb": round(system_memory.available / (1024*1024))
             },
             "gpu": gpu_memory,
-            "active_workers": len(active_workers),
-            "workers": active_workers
+            "active_workers": len([w for w in workers if w['alive']]),
+            "workers": workers
         }
     
     def suggest_best_model(self, requested_model: str) -> Tuple[str, str]:
@@ -332,9 +363,10 @@ class ResourceManager:
             for model_name in models.keys():
                 self.release_model(model_name)
             
-            # Unregister worker
-            self.redis.hdel(self.worker_registry_key, self.worker_id)
+            # Delete worker's model tracking
             self.redis.delete(worker_models_key)
+            
+            print(f"Worker {self.worker_id} cleaned up successfully")
             
         except Exception as e:
             print(f"Warning: Failed to cleanup worker resources: {e}")

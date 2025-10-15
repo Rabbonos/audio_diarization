@@ -8,7 +8,14 @@ import time
 from datetime import timedelta
 from typing import Dict, Any, Optional, List
 from pathlib import Path
-from ..config import settings
+
+try:
+    # Try relative import first (for FastAPI app)
+    from ..config import settings
+except ImportError:
+    # Fall back to absolute import (for RQ worker script)
+    from config import settings
+    
 from .audio_utils import convert_audio_if_needed
 from .model_cache import model_cache
 from .resource_manager import ResourceManager

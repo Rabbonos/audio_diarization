@@ -25,12 +25,13 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.upload_dir, exist_ok=True)
     logger.info(f"Upload directory created: {settings.upload_dir}")
     
-    # Initialize database
+    # Initialize database and create tables
     try:
-        # Database service is already initialized in its constructor
-        logger.info("✅ Database service initialized successfully")
+        db_service.initialize()
+        logger.info("✅ Database initialized and tables created successfully")
     except Exception as e:
         logger.error(f"❌ Database initialization error: {e}")
+        logger.error("Make sure PostgreSQL is running and DATABASE_URL is correct")
         raise
     
     # Initialize MinIO if enabled

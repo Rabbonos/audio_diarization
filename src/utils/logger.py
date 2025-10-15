@@ -7,7 +7,12 @@ from logging.handlers import RotatingFileHandler
 from typing import Optional
 from pathlib import Path
 
-from ..config import settings
+try:
+    # Try relative import first (for FastAPI app)
+    from ..config import settings
+except ImportError:
+    # Fall back to absolute import (for RQ worker script)
+    from config import settings
 
 class AudioDiarizationLogger:
     """Centralized logger for the application"""
