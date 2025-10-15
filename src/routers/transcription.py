@@ -235,6 +235,8 @@ async def get_task_status(task_id: str, api_key: str = Depends(verify_api_key)):
     try:
         status = await result_service.get_task_status(task_id)
         
+        print(f"📡 STATUS ENDPOINT: task_id={task_id}, result={status}")
+        
         if not status:
             raise HTTPException(status_code=404, detail="Task not found")
         

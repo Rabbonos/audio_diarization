@@ -13,9 +13,21 @@ sys.path.insert(0, str(Path(__file__).parent))
 from rq import Worker
 import redis
 from config import settings
+from services.database_service import db_service
+from utils.logger import get_logger
+
+logger = get_logger("rq_worker")
 
 def main():
     """Main worker entry point"""
+    # Initialize database BEFORE processing any tasks
+    try:
+        db_service.initialize()
+        logger.info("✅ Database initialized in RQ worker")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize database in RQ worker: {e}")
+        sys.exit(1)
+    
     # Connect to Redis
     redis_conn = redis.from_url(settings.redis_url)
     

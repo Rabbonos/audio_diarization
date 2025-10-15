@@ -42,26 +42,17 @@ class RQTaskManager:
         
         task_id = job.id
         
-        # Store task metadata
+        # Store task metadata in task:{task_id} hash (consistent with audio_tasks.py)
+        task_key = f"task:{task_id}"
         metadata = {
             "created_at": datetime.now().isoformat(),
             "status": "queued",
-            "progress": 0.0,
-            "message": "Task queued for processing",
-            **task_params
+            "progress": 0,
+            "message": "Task queued for processing"
         }
         
-        # Filter out None values and convert booleans to strings (Redis requirements)
-        metadata = {
-            k: str(v) if isinstance(v, bool) else v 
-            for k, v in metadata.items() 
-            if v is not None
-        }
-        
-        #add metadata
-        metadata_key = f"{self.task_metadata_prefix}{task_id}"
-        self.redis.hset(metadata_key, mapping=metadata)
-        self.redis.expire(metadata_key, 86400)  # Expire in 24 hours
+        self.redis.hset(task_key, mapping=metadata)
+        self.redis.expire(task_key, 86400)  # Expire in 24 hours
         
         # Add to active tasks set
         self.redis.sadd(self.active_tasks_key, task_id)

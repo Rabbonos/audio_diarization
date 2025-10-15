@@ -5,10 +5,18 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 
-from ..config import settings
+try:
+    # Try relative imports first (for FastAPI app)
+    from ..config import settings
+    from ..utils.logger import get_logger
+    from ..utils.redis_client import get_redis_client
+except ImportError:
+    # Fall back to absolute imports (for RQ worker script)
+    from config import settings
+    from utils.logger import get_logger
+    from utils.redis_client import get_redis_client
+    
 from .database_service import db_service
-from ..utils.logger import get_logger
-from ..utils.redis_client import get_redis_client
 
 class ResultService:
     """
@@ -158,36 +166,49 @@ class ResultService:
         """
         Get transcription result with Redis → PostgreSQL fallback
         
-        1. Check Redis cache first
+        1. Check Redis result cache first
         2. If not found, check PostgreSQL
         3. Cache PostgreSQL result in Redis for future requests
         """
         try:
-            # Step 1: Check Redis cache
-            cache_key = self._get_cache_key(task_id)
+            # Step 1: Check Redis cache (transcription_result:task_id)
+            cache_key = f"transcription_result:{task_id}"
             cached_data = self.redis_client.get(cache_key)
             
             if cached_data:
-                self.logger.debug(f"🚀 Cache HIT for task {task_id}")
-                return json.loads(cached_data)
+                print(f"🚀 Result cache HIT for task {task_id}")
+                result = json.loads(cached_data)
+                # Wrap in standard format if needed
+                if not isinstance(result, dict) or 'task_id' not in result:
+                    return {
+                        'task_id': task_id,
+                        'status': 'completed',
+                        'result': result,
+                        'transcription_text': result.get('text') if isinstance(result, dict) else None,
+                        'source': 'redis_cache'
+                    }
+                return result
+            
+            print(f"💾 Result cache MISS for task {task_id}, checking database...")
             
             # Step 2: Check PostgreSQL
-            self.logger.debug(f"💾 Cache MISS for task {task_id}, checking database...")
             db_result = await db_service.get_transcription_result(task_id)
             
             if not db_result:
-                self.logger.warning(f"❌ Task {task_id} not found in database")
+                print(f"❌ Task {task_id} not found in database")
                 return None
+            
+            print(f"✅ Found result in database, caching...")
             
             # Step 3: Cache database result in Redis
             cache_data = {
                 'task_id': task_id,
-                'status': db_result['status'],
+                'status': db_result.get('status', 'completed'),
                 'result': db_result.get('formatted_result'),
                 'transcription_text': db_result.get('transcription_text'),
                 'metadata': {
-                    'created_at': db_result.get('created_at'),
-                    'completed_at': db_result.get('completed_at'),
+                    'created_at': str(db_result.get('created_at')) if db_result.get('created_at') else None,
+                    'completed_at': str(db_result.get('completed_at')) if db_result.get('completed_at') else None,
                     'processing_time_seconds': db_result.get('processing_time_seconds'),
                     'audio_duration_seconds': db_result.get('audio_duration_seconds'),
                     'word_count': db_result.get('word_count'),
@@ -198,7 +219,7 @@ class ResultService:
                     'format_type': db_result.get('format_type')
                 },
                 'error': db_result.get('error_message'),
-                'cached_at': datetime.now(timezone.utc).isoformat(),  # Modern timezone-aware datetime
+                'cached_at': datetime.now(timezone.utc).isoformat(),
                 'source': 'database'
             }
             
@@ -209,11 +230,12 @@ class ResultService:
                 json.dumps(cache_data, default=str)
             )
             
-            self.logger.debug(f"✅ Cached database result for task {task_id}")
             return cache_data
             
         except Exception as e:
             self.logger.error(f"❌ Error getting transcription result for task {task_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
     
     async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -221,47 +243,56 @@ class ResultService:
         Get task status (lighter version without full results)
         """
         try:
-            # Check Redis first for active/recent tasks
-            cache_key = self._get_cache_key(task_id)
-            cached_data = self.redis_client.get(cache_key)
+            # Check task metadata FIRST (for queued/processing/completed tasks)
+            task_key = f"task:{task_id}"
+            task_data = self.redis_client.hgetall(task_key)
             
-            if cached_data:
-                data = json.loads(cached_data)
-                return {
-                    'task_id': task_id,
-                    'status': data.get('status'),
-                    'created_at': data.get('metadata', {}).get('created_at'),
-                    'processing_time': data.get('metadata', {}).get('processing_time_seconds'),
-                    'progress': data.get('progress', 0),
-                    'error': data.get('error'),
-                    'source': 'cache'
-                }
+            print(f"🔍 REDIS CHECK: task_key={task_key}, data={task_data}")
             
-            # Check task metadata (for queued/pending tasks)
-            metadata_key = f"task_metadata:{task_id}"
-            metadata = self.redis_client.hgetall(metadata_key)
-            
-            if metadata:
-                # Convert bytes to strings if needed
-                metadata = {k.decode() if isinstance(k, bytes) else k: 
-                           v.decode() if isinstance(v, bytes) else v 
-                           for k, v in metadata.items()}
+            # hgetall returns empty dict {} if key doesn't exist, so check length
+            if task_data and len(task_data) > 0:
+                print(f"✅ RETURNING STATUS from task hash: {task_data.get('status')}, progress={task_data.get('progress')}")
                 
                 return {
                     'task_id': task_id,
-                    'status': metadata.get('status', 'queued'),
-                    'created_at': metadata.get('created_at'),
-                    'progress': float(metadata.get('progress', 0)),
-                    'message': metadata.get('message'),
-                    'source': 'redis_metadata'
+                    'status': task_data.get('status', 'unknown'),
+                    'created_at': task_data.get('created_at'),
+                    'progress': float(task_data.get('progress', 0)),
+                    'message': task_data.get('message'),
+                    'updated_at': task_data.get('updated_at'),
+                    'source': 'redis_task_hash'
                 }
             
-            # Check database for status
+            print(f"❌ Task hash not found, checking cache...")
+            
+            # Check transcription result cache (for completed tasks)
+            cache_key = f"transcription_result:{task_id}"
+            cached_data = self.redis_client.get(cache_key)
+            
+            if cached_data:
+                print(f"✅ RETURNING STATUS from result cache")
+                data = json.loads(cached_data)
+                return {
+                    'task_id': task_id,
+                    'status': data.get('status', 'completed'),
+                    'created_at': data.get('metadata', {}).get('created_at'),
+                    'processing_time': data.get('metadata', {}).get('processing_time_seconds'),
+                    'progress': 100,
+                    'error': data.get('error'),
+                    'source': 'result_cache'
+                }
+            
+            print(f"❌ Cache not found, checking database...")
+            
+            # Check database for status (final fallback)
             db_result = await db_service.get_transcription_summary(task_id)
+            
+            print(f"💾 DATABASE CHECK: found={db_result is not None}")
+            
             if db_result:
                 return {
                     'task_id': task_id,
-                    'status': db_result['status'],
+                    'status': db_result.get('status', 'unknown'),
                     'created_at': db_result.get('created_at'),
                     'completed_at': db_result.get('completed_at'),
                     'processing_time': db_result.get('processing_time_seconds'),
@@ -269,6 +300,14 @@ class ResultService:
                     'source': 'database'
                 }
             
+            print(f"❌ TASK NOT FOUND ANYWHERE")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"❌ Error getting task status for {task_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
             return None
             
         except Exception as e:

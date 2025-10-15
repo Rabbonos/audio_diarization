@@ -6,8 +6,14 @@ from typing import Optional, Dict, Any, List
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.orm import sessionmaker, Session
 
-from ..config import settings
-from ..models import Base, TranscriptionResult, ApiUsageStats
+try:
+    # Try relative imports first (for FastAPI app)
+    from ..config import settings
+    from ..models import Base, TranscriptionResult, ApiUsageStats
+except ImportError:
+    # Fall back to absolute imports (for RQ worker script)
+    from config import settings
+    from models import Base, TranscriptionResult, ApiUsageStats
 
 class DatabaseService:
     """
@@ -17,10 +23,13 @@ class DatabaseService:
     def __init__(self):
         self.engine = None
         self.SessionLocal = None
-        self._initialize_db()
+        self._initialized = False
     
-    def _initialize_db(self):
-        """Initialize database connection and create tables"""
+    def initialize(self):
+        """Initialize database connection and create tables - call this during startup"""
+        if self._initialized:
+            return
+        
         try:
             self.engine = create_engine(
                 settings.database_url,
@@ -29,17 +38,24 @@ class DatabaseService:
                 pool_recycle=300
             )
             
-            # Create all tables
+            # Create all tables if they don't exist
             Base.metadata.create_all(bind=self.engine)
             
             # Create session factory
             self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
             
+            self._initialized = True
             print("✅ Database initialized successfully")
             
         except Exception as e:
             print(f"❌ Database initialization failed: {e}")
             raise
+    
+    def get_session(self):
+        """Get a database session context manager"""
+        if not self.SessionLocal or not self._initialized:
+            raise RuntimeError("Database not initialized. Call initialize() during startup.")
+        return self.SessionLocal()
     
     async def create_transcription_record(
         self,

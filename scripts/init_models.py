@@ -79,26 +79,40 @@ def main():
         print("⚠ No GPU available - models will download on CPU")
     
     # Get target model from environment
-    target_model = os.getenv("WHISPER_MODEL", settings.whisper_model)
-    print(f"\nTarget model from config: {target_model}")
+    models_env = os.getenv("WHISPER_MODELS_TO_DOWNLOAD", "").strip()
     
     # Determine which models to download
     models_to_download = []
     
-    if target_model == "all":
-        # Download all models
-        models_to_download = WHISPER_MODELS
-        print(f"Will download ALL models: {', '.join(models_to_download)}")
-    else:
-        # Download only the target model and smaller ones for fallback
-        try:
-            target_idx = WHISPER_MODELS.index(target_model)
-            # Download target and all smaller models
-            models_to_download = WHISPER_MODELS[:target_idx + 1]
+    if models_env:
+        if models_env.lower() == "all":
+            # Download all models
+            models_to_download = WHISPER_MODELS
+            print(f"WHISPER_MODELS_TO_DOWNLOAD=all - Will download ALL models")
+        else:
+            # Parse comma-separated list
+            requested_models = [m.strip() for m in models_env.split(",")]
+            models_to_download = [m for m in requested_models if m in WHISPER_MODELS]
+            
+            invalid_models = [m for m in requested_models if m not in WHISPER_MODELS]
+            if invalid_models:
+                print(f"⚠ Invalid models ignored: {', '.join(invalid_models)}")
+            
+            print(f"WHISPER_MODELS_TO_DOWNLOAD={models_env}")
             print(f"Will download: {', '.join(models_to_download)}")
-        except ValueError:
-            print(f"⚠ Unknown model '{target_model}', downloading 'medium' only")
-            models_to_download = ["medium"]
+    else:
+        # Fallback: download only the WHISPER_MODEL
+        target_model = os.getenv("WHISPER_MODEL", settings.whisper_model)
+        if target_model in WHISPER_MODELS:
+            models_to_download = [target_model]
+            print(f"No WHISPER_MODELS_TO_DOWNLOAD set, using WHISPER_MODEL={target_model}")
+        else:
+            models_to_download = ["base"]
+            print(f"⚠ Invalid WHISPER_MODEL, defaulting to 'base'")
+    
+    if not models_to_download:
+        print("✗ No valid models to download!")
+        sys.exit(1)
     
     # Download models
     print(f"\n{'='*60}")

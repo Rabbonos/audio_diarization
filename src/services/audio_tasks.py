@@ -1,24 +1,57 @@
 """
-RQ task functions for audio processing
+RQ task functions for audio processing - FULLY SYNCHRONOUS
+No async/await at all - pure synchronous code for RQ workers
 """
 import os
-import asyncio
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Callable
+from typing import Dict, Any
 from .audio_processor import AudioProcessor
-from .rq_task_manager import get_task_manager
 from .result_service import result_service
 from .storage_service import storage_service
-from ..config import settings
-from ..utils.logger import get_logger
 
-# Get logger for this module
+try:
+    # Try relative imports first (for FastAPI app)
+    from ..config import settings
+    from ..utils.logger import get_logger
+    from ..utils.redis_client import get_redis_client
+except ImportError:
+    # Fall back to absolute imports (for RQ worker script)
+    from config import settings
+    from utils.logger import get_logger
+    from utils.redis_client import get_redis_client
+
 logger = get_logger("audio_tasks")
+
+
+def update_progress(task_id: str, progress: float, message: str, status: str = "processing") -> None:
+    """Sync progress update - always includes status to prevent data loss"""
+    try:
+        redis_client = get_redis_client()
+        task_key = f"task:{task_id}"
+        
+        # Use pipeline to ensure atomicity
+        pipe = redis_client.pipeline()
+        pipe.hset(task_key, mapping={
+            "status": status,
+            "progress": int(progress),
+            "message": message,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+        pipe.expire(task_key, 86400)  # 24 hours
+        pipe.execute()
+        
+        print(f"✅ Redis UPDATE: task_id={task_id}, status={status}, progress={progress}%, msg={message}")
+        logger.info(f"Progress update: {task_id} -> {status} ({progress}%): {message}")
+        
+    except Exception as e:
+        print(f"❌ Redis UPDATE FAILED: task_id={task_id}, error={e}")
+        logger.error(f"Progress update failed for {task_id}: {e}")
+
 
 def process_transcription_task(
     file_path: str,
     storage_path: str = None,
-    language: str = "auto", 
+    language: str = "auto",
     model: str = "medium",
     format_type: str = "json",
     diarization: bool = True,
@@ -27,175 +60,231 @@ def process_transcription_task(
     **kwargs
 ) -> Dict[str, Any]:
     """
-    RQ task function for processing audio transcription
-    This runs in a separate worker process
+    RQ task - FULLY SYNCHRONOUS, no async/await
+    Just plain Python code that RQ workers can execute directly
     """
-    # Get current job for progress tracking
     from rq import get_current_job
+    import whisper
+    import torch
     
     job = get_current_job()
     task_id = job.id
-    start_time = datetime.now(timezone.utc)  # Modern timezone-aware datetime
+    start_time = datetime.now(timezone.utc)
     
-    # Get task manager for progress updates
-    task_manager = get_task_manager()
+    print("=" * 80)
+    print(f"🚀 WORKER STARTED: task_id={task_id}")
+    print(f"   file_path={file_path}")
+    print(f"   storage_path={storage_path}")
+    print(f"   model={model}, language={language}")
+    print("=" * 80)
     
-    def progress_callback(progress: float, message: str) -> None:
-        """Synchronous progress callback for RQ job"""
-        # Run async progress update in event loop
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                task_manager.update_task_progress(task_id, progress, message)
-            )
-            loop.close()
-        except Exception as e:
-            print(f"Error updating progress: {e}")
+    def progress(percent: float, msg: str):
+        print(f"   📊 Progress: {percent}% - {msg}")
+        update_progress(task_id, percent, msg, status="processing")
     
     try:
-        # Initialize audio processor
-        audio_processor = AudioProcessor()
+        print("🔄 Setting initial progress...")
+        progress(0, "Starting...")
         
-        # Update progress
-        progress_callback(0, "Starting transcription...")
-        
-        # Download file from storage if storage_path is provided
+        # Download file if needed - using MinIO sync client
         local_file_path = file_path
         if storage_path:
-            progress_callback(5, "Downloading audio file from storage...")
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            local_file_path = loop.run_until_complete(storage_service.download_file(storage_path))
-            loop.close()
-            logger.info(f"Downloaded file from {storage_path} to {local_file_path}")
+            progress(5, "Downloading file...")
+            
+            # Direct synchronous MinIO download
+            if storage_service.use_minio and storage_service.minio_client:
+                import tempfile
+                
+                # Extract object key from S3 URI if needed
+                # storage_path could be: "s3://bucket/uploads/file.wav" or just "uploads/file.wav"
+                object_key = storage_path
+                if storage_path.startswith("s3://"):
+                    # Remove "s3://bucket-name/" prefix to get just the object key
+                    parts = storage_path.replace("s3://", "").split("/", 1)
+                    if len(parts) > 1:
+                        object_key = parts[1]  # Get everything after bucket name
+                
+                local_file_path = os.path.join(tempfile.gettempdir(), os.path.basename(object_key))
+                storage_service.minio_client.fget_object(
+                    settings.minio_bucket_name,
+                    object_key,  # Use extracted object key, not full URI
+                    local_file_path
+                )
+            else:
+                # Local filesystem - just use the path
+                local_file_path = os.path.join(storage_service.local_upload_dir, storage_path)
+            
+            logger.info(f"Downloaded: {storage_path}")
         
-        # Validate file exists
-        if not local_file_path or not os.path.exists(local_file_path):
-            raise Exception(f"Audio file not found: {local_file_path}")
+        # Check file exists
+        if not os.path.exists(local_file_path):
+            raise Exception(f"File not found: {local_file_path}")
         
-        progress_callback(10, "Loading audio file...")
+        progress(10, "Loading model...")
         
-        # Process the audio synchronously
-        result = asyncio.run(audio_processor.process_audio_sync(
-            file_path=local_file_path,
-            language=language,
-            model=model,
-            format_type=format_type,
-            diarization=diarization,
-            task_id=task_id,
-            progress_callback=progress_callback
-        ))
+        # Load Whisper model from shared volume cache
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         
-        progress_callback(95, "Storing results...")
+        # Use MODEL_CACHE_DIR from environment (mounted shared volume)
+        model_cache_dir = os.getenv("MODEL_CACHE_DIR", "/models")
         
-        # Calculate processing time
-        end_time = datetime.now(timezone.utc)  # Modern timezone-aware datetime
-        processing_time = (end_time - start_time).total_seconds()
+        logger.info(f"Loading model '{model}' from cache: {model_cache_dir}")
+        whisper_model = whisper.load_model(
+            model, 
+            device=device,
+            download_root=model_cache_dir  # Use pre-downloaded models from shared volume
+        )
         
-        # Store results in database and cache
-        processing_metadata = {
+        progress(20, "Transcribing audio...")
+        
+        # Transcribe synchronously
+        result = whisper_model.transcribe(
+            local_file_path,
+            language=None if language == "auto" else language,
+            verbose=False
+        )
+        
+        progress(90, "Processing results...")
+        
+        # Format result
+        formatted_result = {
+            "text": result.get("text", ""),
+            "segments": result.get("segments", []),
+            "language": result.get("language", "unknown")
+        }
+        
+        progress(95, "Saving results...")
+        
+        # Save to database synchronously
+        end_time = datetime.now(timezone.utc)
+        metadata = {
             'started_at': start_time,
             'completed_at': end_time,
-            'processing_time_seconds': processing_time,
+            'processing_time_seconds': (end_time - start_time).total_seconds(),
             'original_filename': original_filename
         }
         
-        # Store results using result service
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        success = loop.run_until_complete(
-            result_service.store_transcription_result(
+        # Direct database insert (synchronous)
+        try:
+            try:
+                from ..models import TranscriptionResult
+            except ImportError:
+                from models import TranscriptionResult
+            
+            # Import db_service at module level to ensure same instance
+            from services.database_service import db_service
+            
+            # Re-initialize if needed (idempotent)
+            if not db_service._initialized:
+                print("⚠️  Database not initialized in task, initializing now...")
+                db_service.initialize()
+            
+            print(f"💾 Saving to database: task_id={task_id}")
+            
+            db_result = TranscriptionResult(
                 task_id=task_id,
                 api_token=api_token or "unknown",
-                result_data=result,
-                processing_metadata=processing_metadata
+                transcription_text=formatted_result["text"],
+                formatted_result=formatted_result,  # Correct column name
+                status="completed",
+                processing_time_seconds=metadata['processing_time_seconds'],
+                original_filename=original_filename,
+                detected_language=formatted_result.get("language", "unknown"),
+                word_count=len(formatted_result["text"].split()) if formatted_result["text"] else 0,
+                started_at=start_time,
+                completed_at=end_time
             )
+            
+            with db_service.get_session() as session:
+                session.add(db_result)
+                session.commit()
+                print(f"✅ Database save successful")
+                logger.info(f"✅ Saved transcription result to database")
+                
+        except Exception as db_error:
+            print(f"❌ Database save failed: {db_error}")
+            import traceback
+            traceback.print_exc()
+            logger.error(f"Failed to save to database: {db_error}")
+        
+        # Update Redis cache with JSON
+        import json
+        redis_client = get_redis_client()
+        
+        print(f"💾 Caching result in Redis: transcription_result:{task_id}")
+        redis_client.setex(
+            f"transcription_result:{task_id}",
+            3600 * 24,  # 24 hours
+            json.dumps(formatted_result)  # Store as JSON string, not Python str
         )
-        loop.close()
         
-        if not success:
-            print(f"Warning: Failed to store results for task {task_id}")
+        # Update task status to completed
+        print(f"✅ Setting final status to COMPLETED for task {task_id}")
+        redis_client.hset(f"task:{task_id}", mapping={
+            "status": "completed",
+            "progress": 100,
+            "message": "Transcription completed successfully",
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
         
-        progress_callback(100, "Transcription completed successfully")
+        # Set expiration on task hash (24 hours)
+        redis_client.expire(f"task:{task_id}", 86400)
         
-        # Clean up local temp audio file (downloaded from storage)
+        print("=" * 80)
+        print(f"✅ WORKER COMPLETED: task_id={task_id}")
+        print(f"   Processing time: {(end_time - start_time).total_seconds():.2f}s")
+        print(f"   Status in Redis: completed")
+        print("=" * 80)
+        
+        # Don't call progress() here - status is already set to "completed" above!
+        
+        # Cleanup local file
         try:
             if storage_path and local_file_path and os.path.exists(local_file_path):
                 os.remove(local_file_path)
-                logger.info(f"Cleaned up local temp file: {local_file_path}")
+                logger.info(f"Cleaned up: {local_file_path}")
         except Exception as e:
-            logger.warning(f"Failed to clean up local temp file {local_file_path}: {e}")
+            logger.warning(f"Cleanup failed: {e}")
         
-        # Clean up audio file from storage (S3/MinIO)
-        if storage_path:
+        # Cleanup storage synchronously
+        if storage_path and storage_service.use_minio and storage_service.minio_client:
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                deleted = loop.run_until_complete(storage_service.delete_file(storage_path))
-                loop.close()
+                # Extract object key from S3 URI if needed
+                object_key = storage_path
+                if storage_path.startswith("s3://"):
+                    parts = storage_path.replace("s3://", "").split("/", 1)
+                    if len(parts) > 1:
+                        object_key = parts[1]
                 
-                if deleted:
-                    logger.info(f"Cleaned up storage file: {storage_path}")
-                else:
-                    logger.warning(f"Failed to delete storage file: {storage_path}")
+                storage_service.minio_client.remove_object(
+                    settings.minio_bucket_name,
+                    object_key  # Use extracted object key, not full URI
+                )
+                logger.info(f"Deleted from storage: {storage_path}")
             except Exception as e:
-                logger.warning(f"Failed to clean up storage file {storage_path}: {e}")
+                logger.warning(f"Storage cleanup failed: {e}")
         
-        return result
+        return formatted_result
         
     except Exception as e:
+        import traceback
         error_msg = f"Transcription failed: {str(e)}"
-        progress_callback(0, error_msg)
+        error_trace = traceback.format_exc()
         
-        # Calculate processing time for failed task
-        end_time = datetime.now(timezone.utc)  # Modern timezone-aware datetime
-        processing_time = (end_time - start_time).total_seconds()
+        print("=" * 80)
+        print(f"❌ WORKER FAILED: task_id={task_id}")
+        print(f"   Error: {error_msg}")
+        print(f"   Traceback:\n{error_trace}")
+        print("=" * 80)
         
-        # Store error in database
-        processing_metadata = {
-            'started_at': start_time,
-            'completed_at': end_time,
-            'processing_time_seconds': processing_time,
-            'original_filename': original_filename
-        }
+        update_progress(task_id, 0, error_msg, status="failed")
+        logger.error(f"{error_msg}\n{error_trace}")
         
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                result_service.store_transcription_error(
-                    task_id=task_id,
-                    api_token=api_token or "unknown",
-                    error_message=error_msg,
-                    processing_metadata=processing_metadata
-                )
-            )
-            loop.close()
-        except Exception as store_error:
-            print(f"Error storing failure result: {store_error}")
-        
-        # Clean up local temp audio file on error
+        # Cleanup on error
         try:
             if local_file_path and os.path.exists(local_file_path):
                 os.remove(local_file_path)
-                logger.info(f"Cleaned up local audio file after error: {local_file_path}")
-        except Exception as cleanup_error:
-            logger.warning(f"Failed to clean up local audio file after error: {cleanup_error}")
-        
-        # Clean up audio file from storage (S3/MinIO) on error
-        if storage_path:
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                deleted = loop.run_until_complete(storage_service.delete_file(storage_path))
-                loop.close()
-                
-                if deleted:
-                    logger.info(f"Cleaned up storage file after error: {storage_path}")
-                else:
-                    logger.warning(f"Failed to delete storage file after error: {storage_path}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up storage file after error {storage_path}: {e}")
+        except:
+            pass
         
         raise Exception(error_msg)

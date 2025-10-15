@@ -9,7 +9,13 @@ from pathlib import Path
 import aiofiles
 from minio import Minio
 from minio.error import S3Error
-from ..config import settings
+
+try:
+    # Try relative import first (for FastAPI app)
+    from ..config import settings
+except ImportError:
+    # Fall back to absolute import (for RQ worker script)
+    from config import settings
 
 class StorageService:
     """
